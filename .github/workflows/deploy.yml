@@ -81,13 +81,13 @@ jobs:
           
           cat $K8S_PATH/ml-deployment.yml | envsubst | kubectl apply -f -
 
-      - name: Set Blue as Active Service
+      name: Set Blue as Active Service
         run: kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "blue"}}}'
 
-      - name: Wait for Blue Deployment to be Ready
+      name: Wait for Blue Deployment to be Ready
         run: kubectl rollout status deployment/ml-service-blue --timeout=5m
 
-      - name: Initial Deployment Finished
+      name: Initial Deployment Finished
         run: echo "Initial Blue deployment complete. Infrastructure is ready."
 
 
@@ -121,10 +121,10 @@ jobs:
           
           cat $K8S_PATH/ml-deployment.yml | envsubst | kubectl apply -f -
 
-      - name: Wait for Green Deployment to be Ready
+      name: Wait for Green Deployment to be Ready
         run: kubectl rollout status deployment/ml-service-green --timeout=5m
 
-      - name: Run Green Service Tests
+      name: Run Green Service Tests
         run: echo "Green (${{ env.GREEN_VERSION }}) is ready. Perform manual testing now via isolated path (if available)."
 
       - name: Manual Test Gate
