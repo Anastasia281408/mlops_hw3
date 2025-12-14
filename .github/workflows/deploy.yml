@@ -59,19 +59,20 @@ jobs:
       - name: Deploy Base K8s Infrastructure
         run: |
           echo "Deploying Base K8s Infrastructure..."
-          kubectl apply -f $K8S_PATH/nginx-configmap.yml
-          kubectl apply -f $K8S_PATH/nginx-deployment.yml
-          kubectl apply -f $K8S_PATH/ml-service.yml
+          kubectl apply -f ${{ env.K8S_PATH }}/nginx-configmap.yml
+          kubectl apply -f ${{ env.K8S_PATH }}/nginx-deployment.yml
+          kubectl apply -f ${{ env.K8S_PATH }}/ml-service.yml
 
       - name: Deploy Blue ML Service (${{ env.BLUE_VERSION }})
+        env:
+          ML_SERVICE_NAME: "ml-service-blue"
+          ML_TIER_NAME: "blue"
+          ML_IMAGE_VERSION: ${{ env.BLUE_VERSION }}
+          CI_REGISTRY_IMAGE: ${{ env.REGISTRY }}/${{ github.repository | lower }}/${{ env.IMAGE_NAME }}
         run: |
           sudo apt-get update
           sudo apt-get install -y gettext-base
-          export ML_SERVICE_NAME="ml-service-blue"
-          export ML_TIER_NAME="blue"
-          export ML_IMAGE_VERSION="${{ env.BLUE_VERSION }}"
-          export CI_REGISTRY_IMAGE="${{ env.REGISTRY }}/${{ github.repository | lower }}/${{ env.IMAGE_NAME }}"
-          cat $K8S_PATH/ml-deployment.yml | envsubst | kubectl apply -f -
+          cat ${{ env.K8S_PATH }}/ml-deployment.yml | envsubst | kubectl apply -f -
 
       - name: Set Blue as Active Service
         run: kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "blue"}}}'
@@ -97,15 +98,15 @@ jobs:
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
       - name: Deploy Green ML Service (${{ env.GREEN_VERSION }})
+        env:
+          ML_SERVICE_NAME: "ml-service-green"
+          ML_TIER_NAME: "green"
+          ML_IMAGE_VERSION: ${{ env.GREEN_VERSION }}
+          CI_REGISTRY_IMAGE: ${{ env.REGISTRY }}/${{ github.repository | lower }}/${{ env.IMAGE_NAME }}
         run: |
-          echo "Starting Green Deployment..."
           sudo apt-get update
           sudo apt-get install -y gettext-base
-          export ML_SERVICE_NAME="ml-service-green"
-          export ML_TIER_NAME="green"
-          export ML_IMAGE_VERSION="${{ env.GREEN_VERSION }}"
-          export CI_REGISTRY_IMAGE="${{ env.REGISTRY }}/${{ github.repository | lower }}/${{ env.IMAGE_NAME }}"
-          cat $K8S_PATH/ml-deployment.yml | envsubst | kubectl apply -f -
+          cat ${{ env.K8S_PATH }}/ml-deployment.yml | envsubst | kubectl apply -f -
 
       - name: Wait for Green Deployment to be Ready
         run: kubectl rollout status deployment/ml-service-green --timeout=5m
