@@ -1,12 +1,10 @@
-name: Blue-Green Deployment to K8s
+name: Blue-Green Deployment to kind (Single Job)
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
-# Needed for pushing images to GHCR with GITHUB_TOKEN
 permissions:
   contents: read
   packages: write
@@ -17,11 +15,16 @@ env:
   BLUE_VERSION: "v1.0.0"
   GREEN_VERSION: "v1.1.0"
   K8S_PATH: "kubernetes"
+  KIND_CLUSTER_NAME: "ci"
 
 jobs:
-  build_images:
+  blue_green_pipeline:
     runs-on: ubuntu-latest
+
     steps:
+      # ----------------------------------------------------
+      # Checkout & vars
+      # ----------------------------------------------------
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -31,9 +34,11 @@ jobs:
 
       - name: Verify Dockerfile exists
         run: |
-          ls -la
           test -f Dockerfile || (echo "ERROR: ./Dockerfile not found" && exit 1)
 
+      # ----------------------------------------------------
+      # Docker build & push
+      # ----------------------------------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -44,7 +49,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and Push Blue Image (${{ env.BLUE_VERSION }})
+      - name: Build and Push Blue Image
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -52,7 +57,7 @@ jobs:
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:${{ env.BLUE_VERSION }}
 
-      - name: Build and Push Green Image (${{ env.GREEN_VERSION }})
+      - name: Build and Push Green Image
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -60,34 +65,40 @@ jobs:
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:${{ env.GREEN_VERSION }}
 
-  deploy_initial_infra:
-    needs: build_images
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set IMAGE_OWNER (lowercase)
-        run: |
-          echo "IMAGE_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
-
-      - name: Setup Kubeconfig
-        uses: azure/k8s-set-context@v4
+      # ----------------------------------------------------
+      # Kubernetes (kind)
+      # ----------------------------------------------------
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
         with:
-          method: kubeconfig
-          kubeconfig: ${{ secrets.KUBE_CONFIG }}
+          cluster_name: ${{ env.KIND_CLUSTER_NAME }}
 
-      - name: Deploy Base K8s Infrastructure
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "latest"
+
+      - name: Verify cluster
         run: |
-          echo "Deploying Base K8s Infrastructure..."
+          kubectl cluster-info
+          kubectl get nodes
+
+      # ----------------------------------------------------
+      # Base infrastructure
+      # ----------------------------------------------------
+      - name: Deploy base infrastructure
+        run: |
           kubectl apply -f ${{ env.K8S_PATH }}/nginx-configmap.yml
           kubectl apply -f ${{ env.K8S_PATH }}/nginx-deployment.yml
           kubectl apply -f ${{ env.K8S_PATH }}/ml-service.yml
 
-      - name: Deploy Blue ML Service (${{ env.BLUE_VERSION }})
+      # ----------------------------------------------------
+      # BLUE deploy
+      # ----------------------------------------------------
+      - name: Deploy BLUE version
         env:
-          ML_SERVICE_NAME: "ml-service-blue"
-          ML_TIER_NAME: "blue"
+          ML_SERVICE_NAME: ml-service-blue
+          ML_TIER_NAME: blue
           ML_IMAGE_VERSION: ${{ env.BLUE_VERSION }}
           CI_REGISTRY_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}
         run: |
@@ -95,93 +106,47 @@ jobs:
           sudo apt-get install -y gettext-base
           envsubst < ${{ env.K8S_PATH }}/ml-deployment.yml | kubectl apply -f -
 
-      - name: Set Blue as Active Service
-        run: kubectl patch service ml-service-internal -p '{"spec":{"selector":{"tier":"blue"}}}'
+      - name: Route traffic to BLUE
+        run: |
+          kubectl patch service ml-service-internal \
+            -p '{"spec":{"selector":{"tier":"blue"}}}'
 
-      - name: Wait for Blue Deployment to be Ready
+      - name: Wait for BLUE
         run: kubectl rollout status deployment/ml-service-blue --timeout=5m
 
-      - name: Initial Deployment Finished
-        run: echo "Initial Blue deployment complete. Infrastructure is ready."
-
-  deploy_green_test:
-    needs: deploy_initial_infra
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set IMAGE_OWNER (lowercase)
-        run: |
-          echo "IMAGE_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
-
-      - name: Setup Kubeconfig
-        uses: azure/k8s-set-context@v4
-        with:
-          method: kubeconfig
-          kubeconfig: ${{ secrets.KUBE_CONFIG }}
-
-      - name: Deploy Green ML Service (${{ env.GREEN_VERSION }})
+      # ----------------------------------------------------
+      # GREEN deploy
+      # ----------------------------------------------------
+      - name: Deploy GREEN version
         env:
-          ML_SERVICE_NAME: "ml-service-green"
-          ML_TIER_NAME: "green"
+          ML_SERVICE_NAME: ml-service-green
+          ML_TIER_NAME: green
           ML_IMAGE_VERSION: ${{ env.GREEN_VERSION }}
           CI_REGISTRY_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gettext-base
           envsubst < ${{ env.K8S_PATH }}/ml-deployment.yml | kubectl apply -f -
 
-      - name: Wait for Green Deployment to be Ready
+      - name: Wait for GREEN
         run: kubectl rollout status deployment/ml-service-green --timeout=5m
 
-      - name: Run Green Service Tests
-        run: echo "Green (${{ env.GREEN_VERSION }}) is ready. Perform manual testing now via isolated path (if available)."
-
-      - name: Manual Test Gate
-        uses: trstringer/manual-approval@v1
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          approvers: ${{ github.actor }}
-          minimum-approvals: 1
-          issue-title: Approve deployment to production -- Switch to Green v${{ env.GREEN_VERSION }}
-          issue-body: Green (v${{ env.GREEN_VERSION }}) is tested and ready to receive production traffic.
-
-  switch_traffic:
-    needs: deploy_green_test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Kubeconfig
-        uses: azure/k8s-set-context@v4
-        with:
-          method: kubeconfig
-          kubeconfig: ${{ secrets.KUBE_CONFIG }}
-
-      - name: Switch Nginx backend to Green
-        run: kubectl patch configmap nginx-config --type='json' -p='[{"op":"replace","path":"/data/ML_SERVICE_BACKEND","value":"ml-service-green"}]'
+      # ----------------------------------------------------
+      # Switch traffic
+      # ----------------------------------------------------
+      - name: Switch Nginx backend to GREEN
+        run: |
+          kubectl patch configmap nginx-config --type='json' \
+            -p='[{"op":"replace","path":"/data/ML_SERVICE_BACKEND","value":"ml-service-green"}]'
 
       - name: Restart Nginx
         run: kubectl rollout restart deployment/nginx-lb
 
-      - name: Set Green as Active Service
-        run: kubectl patch service ml-service-internal -p '{"spec":{"selector":{"tier":"green"}}}'
+      - name: Route traffic to GREEN
+        run: |
+          kubectl patch service ml-service-internal \
+            -p '{"spec":{"selector":{"tier":"green"}}}'
 
-  cleanup_blue:
-    needs: switch_traffic
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Kubeconfig
-        uses: azure/k8s-set-context@v4
-        with:
-          method: kubeconfig
-          kubeconfig: ${{ secrets.KUBE_CONFIG }}
-
-      - name: Cleanup Blue Deployment
+      # ----------------------------------------------------
+      # Cleanup
+      # ----------------------------------------------------
+      - name: Cleanup BLUE deployment
         run: kubectl delete deployment ml-service-blue --ignore-not-found=true
