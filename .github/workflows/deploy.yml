@@ -117,7 +117,7 @@ jobs:
       - name: Manual Test Gate
         uses: trstringer/manual-approval@v1
         with:
-          secret: ${{ github.token }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           approvers: ${{ github.actor }}
           minimum-approvals: 1
           issue-title: "Approve deployment to production: Switch to Green (${{ env.GREEN_VERSION }})"
