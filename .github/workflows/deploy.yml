@@ -85,15 +85,15 @@ jobs:
 
       # ИСПРАВЛЕНО: Добавлен дефис (-)
       - name: Set Blue as Active Service
-        run: kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "blue"}}}'
+          run: kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "blue"}}}'
 
       # ИСПРАВЛЕНО: Добавлен дефис (-)
       - name: Wait for Blue Deployment to be Ready
-        run: kubectl rollout status deployment/ml-service-blue --timeout=5m
+          run: kubectl rollout status deployment/ml-service-blue --timeout=5m
 
       # ИСПРАВЛЕНО: Добавлен дефис (-)
       - name: Initial Deployment Finished
-        run: echo "Initial Blue deployment complete. Infrastructure is ready."
+          run: echo "Initial Blue deployment complete. Infrastructure is ready."
 
 
   deploy_green_test:
