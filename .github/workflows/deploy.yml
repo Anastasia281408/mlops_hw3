@@ -28,7 +28,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ИСПРАВЛЕНО: Добавлен | lower для обхода проблемы кэша с регистром (MLops_HW3)
       - name: Build and Push Blue Image (${{ env.BLUE_VERSION }})
         uses: docker/build-push-action@v5
         with:
@@ -37,7 +36,6 @@ jobs:
           push: true
           tags: ${{ env.REGISTRY }}/${{ github.repository | lower }}/${{ env.IMAGE_NAME }}:${{ env.BLUE_VERSION }}
 
-      # ИСПРАВЛЕНО: Добавлен | lower и использована GREEN_VERSION
       - name: Build and Push Green Image (${{ env.GREEN_VERSION }})
         uses: docker/build-push-action@v5
         with:
@@ -82,13 +80,15 @@ jobs:
           cat $K8S_PATH/ml-deployment.yml | envsubst | kubectl apply -f -
 
       - name: Set Blue as Active Service
-        run: kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "blue"}}}' # ВАШ ОДНОСТРОЧНЫЙ ФОРМАТ
+        run: |
+          kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "blue"}}}'  
 
       - name: Wait for Blue Deployment to be Ready
-        run: kubectl rollout status deployment/ml-service-blue --timeout=5m # ВАШ ОДНОСТРОЧНЫЙ ФОРМАТ
-
+        run: |
+          kubectl rollout status deployment/ml-service-blue --timeout=5m  
       - name: Initial Deployment Finished
-        run: echo "Initial Blue deployment complete. Infrastructure is ready." # ВАШ ОДНОСТРОЧНЫЙ ФОРМАТ
+        run: |
+          echo "Initial Blue deployment complete. Infrastructure is ready."  
 
 
   deploy_green_test:
@@ -116,16 +116,17 @@ jobs:
           export ML_SERVICE_NAME="ml-service-green"
           export ML_TIER_NAME="green"
           export ML_IMAGE_VERSION=${{ env.GREEN_VERSION }}
-          # ИСПРАВЛЕНО: Добавлен | lower для корректного формирования CI_REGISTRY_IMAGE
           export CI_REGISTRY_IMAGE="${{ env.REGISTRY }}/${{ github.repository | lower }}/${{ env.IMAGE_NAME }}"
           
           cat $K8S_PATH/ml-deployment.yml | envsubst | kubectl apply -f -
 
       - name: Wait for Green Deployment to be Ready
-        run: kubectl rollout status deployment/ml-service-green --timeout=5m # ВАШ ОДНОСТРОЧНЫЙ ФОРМАТ
+        run: |
+          kubectl rollout status deployment/ml-service-green --timeout=5m  
 
       - name: Run Green Service Tests
-        run: echo "Green (${{ env.GREEN_VERSION }}) is ready. Perform manual testing now via isolated path (if available)." # ВАШ ОДНОСТРОЧНЫЙ ФОРМАТ
+        run: |
+          echo "Green (${{ env.GREEN_VERSION }}) is ready. Perform manual testing now via isolated path (if available)."  
 
       - name: Manual Test Gate
         uses: trstringer/manual-approval@v1
@@ -152,13 +153,16 @@ jobs:
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
       - name: Switch Nginx backend to Green
-        run: kubectl patch configmap nginx-config --type='json' -p='[{"op": "replace", "path": "/data/ML_SERVICE_BACKEND", "value": "ml-service-green"}]' # ВАШ ОДНОСТРОЧНЫЙ ФОРМАТ
+        run: |
+          kubectl patch configmap nginx-config --type='json' -p='[{"op": "replace", "path": "/data/ML_SERVICE_BACKEND", "value": "ml-service-green"}]' 
 
       - name: Restart Nginx
-        run: kubectl rollout restart deployment/nginx-lb # ВАШ ОДНОСТРОЧНЫЙ ФОРМАТ
+        run: |
+          kubectl rollout restart deployment/nginx-lb  
 
       - name: Set Green as Active Service
-        run: kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "green"}}}' # ВАШ ОДНОСТРОЧНЫЙ ФОРМАТ
+        run: |
+          kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "green"}}}' 
 
 
   cleanup_blue:
@@ -176,4 +180,5 @@ jobs:
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
       - name: Cleanup Blue Deployment
-        run: kubectl delete deployment ml-service-blue --ignore-not-found=true # ВАШ ОДНОСТРОЧНЫЙ ФОРМАТ
+        run: |
+          kubectl delete deployment ml-service-blue --ignore-not-found=true  
