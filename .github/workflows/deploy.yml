@@ -36,10 +36,10 @@ jobs:
           set -euo pipefail
           test -f Dockerfile || (echo "ERROR: ./Dockerfile not found" && exit 1)
           test -f "${K8S_PATH}/ml-deployment.yml" || (echo "ERROR: ${K8S_PATH}/ml-deployment.yml not found" && exit 1)
+          test -f "${K8S_PATH}/nginx-configmap.yml" || (echo "ERROR: ${K8S_PATH}/nginx-configmap.yml not found" && exit 1)
+          test -f "${K8S_PATH}/nginx-deployment.yml" || (echo "ERROR: ${K8S_PATH}/nginx-deployment.yml not found" && exit 1)
+          test -f "${K8S_PATH}/ml-service.yml" || (echo "ERROR: ${K8S_PATH}/ml-service.yml not found" && exit 1)
 
-      # ---------------------------
-      # Build & push images to GHCR
-      # ---------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -50,12 +50,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # ВАЖНО: multi-arch, чтобы image работал и в GitHub Actions (amd64), и на ARM
       - name: Build and Push Blue Image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:${{ env.BLUE_VERSION }}
 
       - name: Build and Push Green Image
@@ -64,11 +66,9 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:${{ env.GREEN_VERSION }}
 
-      # ---------------------------
-      # kind cluster (single runner)
-      # ---------------------------
       - name: Create kind cluster
         uses: helm/kind-action@v1
         with:
@@ -85,33 +85,20 @@ jobs:
           kubectl cluster-info
           kubectl get nodes
 
-      # ---------------------------
-      # GHCR pull secret for K8s
-      # ---------------------------
-      - name: Create imagePullSecret for GHCR (so pods can pull images)
+      - name: Create imagePullSecret for GHCR
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
-          # Create or replace secret
           kubectl -n "${K8S_NAMESPACE}" delete secret ghcr-creds --ignore-not-found=true
-
           kubectl -n "${K8S_NAMESPACE}" create secret docker-registry ghcr-creds \
             --docker-server="${REGISTRY}" \
             --docker-username="${GHCR_USER}" \
             --docker-password="${GHCR_TOKEN}"
-
-          # Attach it to default ServiceAccount (so deployments can pull without editing manifests)
           kubectl -n "${K8S_NAMESPACE}" patch serviceaccount default \
             -p '{"imagePullSecrets":[{"name":"ghcr-creds"}]}' || true
 
-          kubectl -n "${K8S_NAMESPACE}" get secret ghcr-creds
-
-      # ---------------------------
-      # Base infrastructure
-      # ---------------------------
       - name: Deploy base infrastructure
         run: |
           set -euo pipefail
@@ -119,10 +106,12 @@ jobs:
           kubectl apply -f "${K8S_PATH}/nginx-deployment.yml"
           kubectl apply -f "${K8S_PATH}/ml-service.yml"
 
-      # ---------------------------
-      # BLUE deploy
-      # ---------------------------
-      - name: Deploy BLUE version
+      - name: Wait for Nginx
+        run: |
+          set -euo pipefail
+          kubectl rollout status deployment/nginx-lb --timeout=5m
+
+      - name: Deploy BLUE
         env:
           ML_SERVICE_NAME: ml-service-blue
           ML_TIER_NAME: blue
@@ -144,10 +133,7 @@ jobs:
           set -euo pipefail
           kubectl rollout status deployment/ml-service-blue --timeout=5m
 
-      # ---------------------------
-      # GREEN deploy
-      # ---------------------------
-      - name: Deploy GREEN version
+      - name: Deploy GREEN
         env:
           ML_SERVICE_NAME: ml-service-green
           ML_TIER_NAME: green
@@ -162,50 +148,23 @@ jobs:
           set -euo pipefail
           kubectl rollout status deployment/ml-service-green --timeout=5m
 
-      # ---------------------------
-      # Switch traffic
-      # ---------------------------
-      - name: Switch Nginx backend to GREEN
-        run: |
-          set -euo pipefail
-          kubectl patch configmap nginx-config --type='json' \
-            -p='[{"op":"replace","path":"/data/ML_SERVICE_BACKEND","value":"ml-service-green"}]'
-
-      - name: Restart Nginx
-        run: |
-          set -euo pipefail
-          kubectl rollout restart deployment/nginx-lb
-
       - name: Route traffic to GREEN
         run: |
           set -euo pipefail
           kubectl patch service ml-service-internal -p '{"spec":{"selector":{"tier":"green"}}}'
 
-      # ---------------------------
-      # Cleanup
-      # ---------------------------
-      - name: Cleanup BLUE deployment
+      - name: Cleanup BLUE
         run: |
           set -euo pipefail
           kubectl delete deployment ml-service-blue --ignore-not-found=true
 
-      # ---------------------------
-      # Diagnostics on failure
-      # ---------------------------
-      - name: Diagnostics (only if something failed)
+      - name: Diagnostics on failure
         if: failure()
         run: |
-          echo "=== NAMESPACE: ${K8S_NAMESPACE} ==="
+          echo "=== ALL RESOURCES ==="
           kubectl get all -n "${K8S_NAMESPACE}" || true
-
           echo "=== PODS ==="
           kubectl get pods -n "${K8S_NAMESPACE}" -o wide || true
+          echo "=== EVENTS (last 200) ==="
+          kubectl get events -n "${K8S_NAMESPACE}" --sort-by=.lastTimestamp | tail -n 200 || true
 
-          echo "=== DESCRIBE PODS ==="
-          for p in $(kubectl get pods -n "${K8S_NAMESPACE}" -o name 2>/dev/null); do
-            echo "--- $p ---"
-            kubectl describe -n "${K8S_NAMESPACE}" "$p" || true
-          done
-
-          echo "=== EVENTS (last 100) ==="
-          kubectl get events -n "${K8S_NAMESPACE}" --sort-by=.lastTimestamp | tail -n 100 || true
