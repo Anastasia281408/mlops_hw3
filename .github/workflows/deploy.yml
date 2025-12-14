@@ -14,6 +14,7 @@ env:
   K8S_PATH: "kubernetes"
 
 jobs:
+  # ИСПРАВЛЕНО: Чистый отступ 2 пробела
   build_images:
     runs-on: ubuntu-latest
     steps:
@@ -43,6 +44,7 @@ jobs:
           push: true
           tags: ${{ format('{0}/{1}/{2}:{3}', env.REGISTRY, github.repository | lower, env.IMAGE_NAME, env.GREEN_VERSION) }}
 
+  # ИСПРАВЛЕНО: Чистый отступ 2 пробела
   deploy_initial_infra:
     needs: build_images
     runs-on: ubuntu-latest
@@ -83,6 +85,7 @@ jobs:
       - name: Initial Deployment Finished
         run: echo "Initial Blue deployment complete. Infrastructure is ready."
 
+  # ИСПРАВЛЕНО: Чистый отступ 2 пробела
   deploy_green_test:
     needs: deploy_initial_infra
     runs-on: ubuntu-latest
@@ -123,6 +126,7 @@ jobs:
           issue-title: 'Approve deployment to production -- Switch to Green v${{ env.GREEN_VERSION }}'
           issue-body: 'Green (v${{ env.GREEN_VERSION }}) is tested and ready to receive production traffic.'
 
+  # ИСПРАВЛЕНО: Чистый отступ 2 пробела (Строка 140)
   switch_traffic:
     needs: deploy_green_test
     runs-on: ubuntu-latest
@@ -145,6 +149,7 @@ jobs:
       - name: Set Green as Active Service
         run: "kubectl patch service ml-service-internal -p '{\"spec\": {\"selector\": {\"tier\": \"green\"}}}'"
 
+  # ИСПРАВЛЕНО: Чистый отступ 2 пробела
   cleanup_blue:
     needs: switch_traffic
     runs-on: ubuntu-latest
