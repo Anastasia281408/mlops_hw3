@@ -60,19 +60,17 @@ jobs:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
-        - name: Deploy Base K8s Infrastructure
-        
+      # ИСПРАВЛЕНО: Отступы
+      - name: Deploy Base K8s Infrastructure
         run: |
           echo "Deploying Base K8s Infrastructure..."
           kubectl apply -f $K8S_PATH/nginx-configmap.yml
           kubectl apply -f $K8S_PATH/nginx-deployment.yml
           kubectl apply -f $K8S_PATH/ml-service.yml
           
-      
+      # ИСПРАВЛЕНО: Отступы
       - name: Deploy Blue ML Service (${{ env.BLUE_VERSION }})
-       
         run: |
-          # 10 пробелов перед командой
           # Установка gettext-base для envsubst
           sudo apt-get update
           sudo apt-get install gettext-base -y
@@ -85,13 +83,16 @@ jobs:
           
           cat $K8S_PATH/ml-deployment.yml | envsubst | kubectl apply -f -
 
-      name: Set Blue as Active Service
+      # ИСПРАВЛЕНО: Добавлен дефис (-)
+      - name: Set Blue as Active Service
         run: kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "blue"}}}'
 
-      name: Wait for Blue Deployment to be Ready
+      # ИСПРАВЛЕНО: Добавлен дефис (-)
+      - name: Wait for Blue Deployment to be Ready
         run: kubectl rollout status deployment/ml-service-blue --timeout=5m
 
-      name: Initial Deployment Finished
+      # ИСПРАВЛЕНО: Добавлен дефис (-)
+      - name: Initial Deployment Finished
         run: echo "Initial Blue deployment complete. Infrastructure is ready."
 
 
@@ -125,10 +126,12 @@ jobs:
           
           cat $K8S_PATH/ml-deployment.yml | envsubst | kubectl apply -f -
 
-      name: Wait for Green Deployment to be Ready
+      # ИСПРАВЛЕНО: Добавлен дефис (-)
+      - name: Wait for Green Deployment to be Ready
         run: kubectl rollout status deployment/ml-service-green --timeout=5m
 
-      name: Run Green Service Tests
+      # ИСПРАВЛЕНО: Добавлен дефис (-)
+      - name: Run Green Service Tests
         run: echo "Green (${{ env.GREEN_VERSION }}) is ready. Perform manual testing now via isolated path (if available)."
 
       - name: Manual Test Gate
