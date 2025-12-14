@@ -28,77 +28,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and Push Blue Image (v1.0.0)
+      # ИСПРАВЛЕНО: Удален | lower. ИСПРАВЛЕНО: Убран неверный отступ
+      - name: Build and Push Blue Image (${{ env.BLUE_VERSION }})
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./app/Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ github.repository | lower }}/${{ env.IMAGE_NAME }}:${{ env.BLUE_VERSION }}
+          tags: ${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}:${{ env.BLUE_VERSION }}
 
-      - name: Build and Push Green Image (v1.1.0)
+      # ИСПРАВЛЕНО: Использована GREEN_VERSION. Удален | lower.
+      - name: Build and Push Green Image (${{ env.GREEN_VERSION }})
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./app/Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ github.repository | lower }}/${{ env.IMAGE_NAME }}:${{ env.BLUE_VERSION }}
+          tags: ${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}:${{ env.GREEN_VERSION }}
 
   deploy_initial_infra:
     needs: build_images
     runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-
-      - name: Setup Kubeconfig
-        uses: azure/k8s-set-context@v4
-        with:
-          method: kubeconfig
-          kubeconfig: ${{ secrets.KUBE_CONFIG }} # ВАЖНО: Требуется этот секрет!
-
-
-      - name: Deploy Base K8s Infrastructure
-        run: |
-          echo "Deploying Base K8s Infrastructure..."
-          kubectl apply -f $K8S_PATH/nginx-configmap.yml
-          kubectl apply -f $K8S_PATH/nginx-deployment.yml
-          # Service, который будет указывать на 'active'
-          kubectl apply -f $K8S_PATH/ml-service.yml
-
-
-      - name: Deploy Blue ML Service (v1.0.0)
-        run: |
-          export ML_SERVICE_NAME="ml-service-blue"
-          export ML_TIER_NAME="blue"
-          export ML_IMAGE_VERSION=${{ env.BLUE_VERSION }}
-          export CI_REGISTRY_IMAGE="${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}"
-          sudo apt-get install gettext-base -y
-          cat $K8S_PATH/ml-deployment.yml | envsubst | kubectl apply -f -
-
-
-      - name: Set Blue as Active Service
-        run: |
-          kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "blue"}}}'
-
-      - name: Wait for Blue Deployment to be Ready
-        run: |
-          kubectl rollout status deployment/ml-service-blue --timeout=5m
-
-      - name: Initial Deployment Finished
-        run: |
-          echo "Initial Blue deployment complete. Infrastructure is ready."
-
-
-  deploy_green_test:
-    needs: deploy_initial_infra
-    runs-on: ubuntu-latest
-
-
-    environment:
-      name: production
 
     steps:
       - name: Checkout code
@@ -110,23 +60,72 @@ jobs:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
+      - name: Deploy Base K8s Infrastructure
+        run: |
+          echo "Deploying Base K8s Infrastructure..."
+          kubectl apply -f $K8S_PATH/nginx-configmap.yml
+          kubectl apply -f $K8S_PATH/nginx-deployment.yml
+          kubectl apply -f $K8S_PATH/ml-service.yml # Service, который будет указывать на 'active'
 
-      - name: Deploy Green ML Service (v1.1.0)
+      # ИСПРАВЛЕНО: Улучшен скрипт с apt-get
+      - name: Deploy Blue ML Service (${{ env.BLUE_VERSION }})
+        run: |
+          # Установка gettext-base для envsubst
+          sudo apt-get update
+          sudo apt-get install gettext-base -y
+
+          export ML_SERVICE_NAME="ml-service-blue"
+          export ML_TIER_NAME="blue"
+          export ML_IMAGE_VERSION=${{ env.BLUE_VERSION }}
+          export CI_REGISTRY_IMAGE="${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}"
+          
+          cat $K8S_PATH/ml-deployment.yml | envsubst | kubectl apply -f -
+
+      - name: Set Blue as Active Service
+        run: kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "blue"}}}'
+
+      - name: Wait for Blue Deployment to be Ready
+        run: kubectl rollout status deployment/ml-service-blue --timeout=5m
+
+      - name: Initial Deployment Finished
+        run: echo "Initial Blue deployment complete. Infrastructure is ready."
+
+
+  deploy_green_test:
+    needs: deploy_initial_infra
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Kubeconfig
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG }}
+
+      # ИСПРАВЛЕНО: Улучшен скрипт с apt-get
+      - name: Deploy Green ML Service (${{ env.GREEN_VERSION }})
         run: |
           echo "Starting Green Deployment..."
+          # Установка gettext-base для envsubst
+          sudo apt-get update
+          sudo apt-get install gettext-base -y
+          
           export ML_SERVICE_NAME="ml-service-green"
           export ML_TIER_NAME="green"
           export ML_IMAGE_VERSION=${{ env.GREEN_VERSION }}
           export CI_REGISTRY_IMAGE="${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}"
-          sudo apt-get install gettext-base -y
+          
           cat $K8S_PATH/ml-deployment.yml | envsubst | kubectl apply -f -
 
       - name: Wait for Green Deployment to be Ready
         run: kubectl rollout status deployment/ml-service-green --timeout=5m
 
       - name: Run Green Service Tests
-        run: echo "Green (v1.1.0) is ready. Perform manual testing now via isolated path (if available)."
-
+        run: echo "Green (${{ env.GREEN_VERSION }}) is ready. Perform manual testing now via isolated path (if available)."
 
       - name: Manual Test Gate
         uses: trstringer/manual-approval@v1
@@ -134,7 +133,7 @@ jobs:
           secret: ${{ github.token }}
           approvers: ${{ github.actor }}
           minimum-approvals: 1
-          issue-title: "Approve deployment to production: Switch to Green (v1.1.0)"
+          issue-title: "Approve deployment to production: Switch to Green (${{ env.GREEN_VERSION }})"
           issue-body: "Green is tested and ready to receive production traffic."
 
 
@@ -152,20 +151,14 @@ jobs:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
-
       - name: Switch Nginx backend to Green
-        run: |
-          kubectl patch configmap nginx-config --type='json' -p='[{"op": "replace", "path": "/data/ML_SERVICE_BACKEND", "value": "ml-service-green"}]'
-
+        run: kubectl patch configmap nginx-config --type='json' -p='[{"op": "replace", "path": "/data/ML_SERVICE_BACKEND", "value": "ml-service-green"}]'
 
       - name: Restart Nginx
-        run: |
-          kubectl rollout restart deployment/nginx-lb
-
+        run: kubectl rollout restart deployment/nginx-lb
 
       - name: Set Green as Active Service
-        run: |
-          kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "green"}}}'
+        run: kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "green"}}}'
 
 
   cleanup_blue:
@@ -183,6 +176,4 @@ jobs:
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
       - name: Cleanup Blue Deployment
-        run: |
-          kubectl delete deployment ml-service-blue --ignore-not-found=true
-
+        run: kubectl delete deployment ml-service-blue --ignore-not-found=true
