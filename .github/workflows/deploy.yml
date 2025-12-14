@@ -34,7 +34,7 @@ jobs:
           context: .
           file: ./app/Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}:${{ env.BLUE_VERSION }}
+          tags: ${{ env.REGISTRY }}/${{ github.repository | lower }}/${{ env.IMAGE_NAME }}:${{ env.BLUE_VERSION }}
 
       - name: Build and Push Green Image (v1.1.0)
         uses: docker/build-push-action@v5
@@ -42,8 +42,7 @@ jobs:
           context: .
           file: ./app/Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}:${{ env.GREEN_VERSION }}
-
+          tags: ${{ env.REGISTRY }}/${{ github.repository | lower }}/${{ env.IMAGE_NAME }}:${{ env.BLUE_VERSION }}
 
   deploy_initial_infra:
     needs: build_images
