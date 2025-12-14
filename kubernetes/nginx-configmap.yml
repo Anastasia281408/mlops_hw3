@@ -1,61 +1,37 @@
-# kubernetes/nginx-configmap.yml
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: nginx-config
 data:
-  # По умолчанию Nginx будет проксировать на ml-service-blue
-  ML_SERVICE_BACKEND: "ml-service-blue"
-
-  # Основной конфигурационный файл Nginx
+  ML_SERVICE_BACKEND: "ml-service-internal"
   nginx.conf: |
     user nginx;
     worker_processes auto;
-    events {
-      worker_connections 1024;
-    }
+
+    events { worker_connections 1024; }
+
     http {
       include       mime.types;
       default_type  application/octet-stream;
-      sendfile        on;
-      keepalive_timeout  65;
+      sendfile      on;
+      keepalive_timeout 65;
 
-      # Определяем два бэкенда
-      upstream ml_backend_blue {
-        server ml-service-blue:8080;
-      }
-      upstream ml_backend_green {
-        server ml-service-green:8080;
+      upstream ml_backend {
+        server ml-service-internal:8080;
       }
 
       server {
         listen 80;
 
-        # Получаем имя активного бэкенда из ConfigMap (по умолчанию ml-service-blue)
-        set $active_backend $ML_SERVICE_BACKEND; 
-
         location / {
-          # Логика переключения: если переменная = "ml-service-blue", проксируем туда
-          if ($active_backend = "ml-service-blue") {
-            proxy_pass http://ml_backend_blue;
-          }
-          if ($active_backend = "ml-service-green") {
-            proxy_pass http://ml_backend_green;
-          }
+          proxy_pass http://ml_backend;
           proxy_set_header Host $host;
           proxy_set_header X-Real-IP $remote_addr;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         }
 
         location /health {
-          # Health check
-          if ($active_backend = "ml-service-blue") {
-            proxy_pass http://ml_backend_blue/health;
-          }
-          if ($active_backend = "ml-service-green") {
-            proxy_pass http://ml_backend_green/health;
-          }
-          proxy_set_header Host $host;
+          proxy_pass http://ml_backend/health;
         }
       }
     }

@@ -50,8 +50,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ВАЖНО: multi-arch, чтобы image работал и в GitHub Actions (amd64), и на ARM
-      - name: Build and Push Blue Image
+      - name: Build and Push Blue Image (multi-arch)
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -60,7 +59,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:${{ env.BLUE_VERSION }}
 
-      - name: Build and Push Green Image
+      - name: Build and Push Green Image (multi-arch)
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -167,4 +166,3 @@ jobs:
           kubectl get pods -n "${K8S_NAMESPACE}" -o wide || true
           echo "=== EVENTS (last 200) ==="
           kubectl get events -n "${K8S_NAMESPACE}" --sort-by=.lastTimestamp | tail -n 200 || true
-
