@@ -6,6 +6,11 @@ on:
       - main
   workflow_dispatch:
 
+# Needed for pushing images to GHCR with GITHUB_TOKEN
+permissions:
+  contents: read
+  packages: write
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ml-service
@@ -20,9 +25,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set IMAGE_REPO (lowercase)
+      - name: Set IMAGE_OWNER (lowercase)
         run: |
-          echo "IMAGE_REPO=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+          echo "IMAGE_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
 
       - name: Verify Dockerfile exists
         run: |
@@ -45,7 +50,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:${{ env.BLUE_VERSION }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:${{ env.BLUE_VERSION }}
 
       - name: Build and Push Green Image (${{ env.GREEN_VERSION }})
         uses: docker/build-push-action@v5
@@ -53,7 +58,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:${{ env.GREEN_VERSION }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:${{ env.GREEN_VERSION }}
 
   deploy_initial_infra:
     needs: build_images
@@ -62,9 +67,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set IMAGE_REPO (lowercase)
+      - name: Set IMAGE_OWNER (lowercase)
         run: |
-          echo "IMAGE_REPO=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+          echo "IMAGE_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
 
       - name: Setup Kubeconfig
         uses: azure/k8s-set-context@v4
@@ -84,7 +89,7 @@ jobs:
           ML_SERVICE_NAME: "ml-service-blue"
           ML_TIER_NAME: "blue"
           ML_IMAGE_VERSION: ${{ env.BLUE_VERSION }}
-          CI_REGISTRY_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}
+          CI_REGISTRY_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}
         run: |
           sudo apt-get update
           sudo apt-get install -y gettext-base
@@ -107,9 +112,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set IMAGE_REPO (lowercase)
+      - name: Set IMAGE_OWNER (lowercase)
         run: |
-          echo "IMAGE_REPO=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+          echo "IMAGE_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
 
       - name: Setup Kubeconfig
         uses: azure/k8s-set-context@v4
@@ -122,7 +127,7 @@ jobs:
           ML_SERVICE_NAME: "ml-service-green"
           ML_TIER_NAME: "green"
           ML_IMAGE_VERSION: ${{ env.GREEN_VERSION }}
-          CI_REGISTRY_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}
+          CI_REGISTRY_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}
         run: |
           sudo apt-get update
           sudo apt-get install -y gettext-base
