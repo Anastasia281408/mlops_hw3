@@ -81,13 +81,16 @@ jobs:
 
 
       - name: Set Blue as Active Service
-        run: kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "blue"}}}'
+        run: |
+          kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "blue"}}}'
 
       - name: Wait for Blue Deployment to be Ready
-        run: kubectl rollout status deployment/ml-service-blue --timeout=5m
+        run: |
+          kubectl rollout status deployment/ml-service-blue --timeout=5m
 
       - name: Initial Deployment Finished
-        run: echo "Initial Blue deployment complete. Infrastructure is ready."
+        run: |
+          echo "Initial Blue deployment complete. Infrastructure is ready."
 
 
   deploy_green_test:
@@ -157,11 +160,13 @@ jobs:
 
 
       - name: Restart Nginx
-        run: kubectl rollout restart deployment/nginx-lb
+        run: |
+          kubectl rollout restart deployment/nginx-lb
 
 
       - name: Set Green as Active Service
-        run: kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "green"}}}'
+        run: |
+          kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "green"}}}'
 
 
   cleanup_blue:
@@ -179,5 +184,6 @@ jobs:
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
       - name: Cleanup Blue Deployment
-        run: kubectl delete deployment ml-service-blue --ignore-not-found=true
+        run: |
+          kubectl delete deployment ml-service-blue --ignore-not-found=true
 
