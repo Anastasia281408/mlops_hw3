@@ -1,0 +1,37 @@
+# kubernetes/ml-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ML_SERVICE_NAME
+  labels:
+    app: ml-service
+    tier: ML_TIER_NAME
+    version: ML_IMAGE_VERSION
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      tier: ML_TIER_NAME
+  template:
+    metadata:
+      labels:
+        app: ml-service
+        tier: ML_TIER_NAME
+    spec:
+      containers:
+      - name: ml-service
+        image: $CI_REGISTRY_IMAGE:$ML_IMAGE_VERSION
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 20

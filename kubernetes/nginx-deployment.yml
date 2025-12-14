@@ -1,0 +1,55 @@
+# kubernetes/nginx-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-lb
+  labels:
+    app: nginx-lb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-lb
+  template:
+    metadata:
+      labels:
+        app: nginx-lb
+    spec:
+      containers:
+      - name: nginx-lb
+        image: nginx:stable-alpine
+        ports:
+        - containerPort: 80
+        # 1. Монтируем nginx.conf из ConfigMap, чтобы Nginx использовал нашу конфигурацию
+        volumeMounts:
+          - name: nginx-config-volume
+            mountPath: /etc/nginx/nginx.conf
+            subPath: nginx.conf
+        # 2. Пробрасываем переменную ML_SERVICE_BACKEND из ConfigMap
+        env:
+          - name: ML_SERVICE_BACKEND
+            valueFrom:
+              configMapKeyRef:
+                name: nginx-config
+                key: ML_SERVICE_BACKEND
+      volumes:
+        - name: nginx-config-volume
+          configMap:
+            name: nginx-config
+---
+# Внешний Service для Nginx
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-external
+  labels:
+    app: nginx-lb
+spec:
+  selector:
+    app: nginx-lb
+  ports:
+    - protocol: TCP
+      port: 80 # Внешний порт, на который будет приходить трафик
+      targetPort: 80 # Порт, который слушает Nginx
+  # Тип LoadBalancer создаст внешний IP-адрес в облаке
+  type: LoadBalancer

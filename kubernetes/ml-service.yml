@@ -1,0 +1,17 @@
+# kubernetes/ml-service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  # Имя Service, по которому к нему будет обращаться Nginx (ml-service-internal)
+  name: ml-service-internal
+  labels:
+    app: ml-service
+spec:
+  # Service будет проксировать на поды с лейблом tier: active
+  selector:
+    tier: active
+  ports:
+    - protocol: TCP
+      port: 8080 # Порт, который будет слушать Service
+      targetPort: 8080 # Порт, который слушает сам ML-контейнер
+  type: ClusterIP # Внутренний Service, доступный только внутри кластера

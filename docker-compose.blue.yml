@@ -1,0 +1,25 @@
+version: '3.8'
+services:
+  ml-service-blue:
+    build: .
+    image: ml-service:v1.0.0
+    container_name: ml-service-blue
+    environment:
+      - MODEL_VERSION=v1.0.0
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    
+  nginx:
+    image: nginx:stable-alpine
+    container_name: nginx-lb
+    ports:
+      - "8088:80"
+    volumes:
+      - ./nginx/nginx_blue.conf:/etc/nginx/nginx.conf:ro # Использует Blue конфиг
+    depends_on:
+      - ml-service-blue
