@@ -75,7 +75,7 @@ jobs:
           cat ${{ env.K8S_PATH }}/ml-deployment.yml | envsubst | kubectl apply -f -
 
       - name: Set Blue as Active Service
-        run: kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "blue"}}}'
+        run: "kubectl patch service ml-service-internal -p '{\"spec\": {\"selector\": {\"tier\": \"blue\"}}}'"
 
       - name: Wait for Blue Deployment to be Ready
         run: kubectl rollout status deployment/ml-service-blue --timeout=5m
@@ -143,7 +143,7 @@ jobs:
         run: kubectl rollout restart deployment/nginx-lb
 
       - name: Set Green as Active Service
-        run: kubectl patch service ml-service-internal -p '{"spec": {"selector": {"tier": "green"}}}'
+        run: "kubectl patch service ml-service-internal -p '{\"spec\": {\"selector\": {\"tier\": \"green\"}}}'"
 
   cleanup_blue:
     needs: switch_traffic
