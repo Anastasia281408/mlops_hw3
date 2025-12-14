@@ -16,29 +16,30 @@ env:
   GREEN_VERSION: "v1.1.0"
   K8S_PATH: "kubernetes"
   KIND_CLUSTER_NAME: "ci"
+  K8S_NAMESPACE: "default"
 
 jobs:
   blue_green_pipeline:
     runs-on: ubuntu-latest
 
     steps:
-      # ----------------------------------------------------
-      # Checkout & vars
-      # ----------------------------------------------------
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set IMAGE_OWNER (lowercase)
         run: |
-          echo "IMAGE_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
+          set -euo pipefail
+          echo "IMAGE_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
 
-      - name: Verify Dockerfile exists
+      - name: Verify required files
         run: |
+          set -euo pipefail
           test -f Dockerfile || (echo "ERROR: ./Dockerfile not found" && exit 1)
+          test -f "${K8S_PATH}/ml-deployment.yml" || (echo "ERROR: ${K8S_PATH}/ml-deployment.yml not found" && exit 1)
 
-      # ----------------------------------------------------
-      # Docker build & push
-      # ----------------------------------------------------
+      # ---------------------------
+      # Build & push images to GHCR
+      # ---------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -65,9 +66,9 @@ jobs:
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:${{ env.GREEN_VERSION }}
 
-      # ----------------------------------------------------
-      # Kubernetes (kind)
-      # ----------------------------------------------------
+      # ---------------------------
+      # kind cluster (single runner)
+      # ---------------------------
       - name: Create kind cluster
         uses: helm/kind-action@v1
         with:
@@ -80,21 +81,47 @@ jobs:
 
       - name: Verify cluster
         run: |
+          set -euo pipefail
           kubectl cluster-info
           kubectl get nodes
 
-      # ----------------------------------------------------
+      # ---------------------------
+      # GHCR pull secret for K8s
+      # ---------------------------
+      - name: Create imagePullSecret for GHCR (so pods can pull images)
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Create or replace secret
+          kubectl -n "${K8S_NAMESPACE}" delete secret ghcr-creds --ignore-not-found=true
+
+          kubectl -n "${K8S_NAMESPACE}" create secret docker-registry ghcr-creds \
+            --docker-server="${REGISTRY}" \
+            --docker-username="${GHCR_USER}" \
+            --docker-password="${GHCR_TOKEN}"
+
+          # Attach it to default ServiceAccount (so deployments can pull without editing manifests)
+          kubectl -n "${K8S_NAMESPACE}" patch serviceaccount default \
+            -p '{"imagePullSecrets":[{"name":"ghcr-creds"}]}' || true
+
+          kubectl -n "${K8S_NAMESPACE}" get secret ghcr-creds
+
+      # ---------------------------
       # Base infrastructure
-      # ----------------------------------------------------
+      # ---------------------------
       - name: Deploy base infrastructure
         run: |
-          kubectl apply -f ${{ env.K8S_PATH }}/nginx-configmap.yml
-          kubectl apply -f ${{ env.K8S_PATH }}/nginx-deployment.yml
-          kubectl apply -f ${{ env.K8S_PATH }}/ml-service.yml
+          set -euo pipefail
+          kubectl apply -f "${K8S_PATH}/nginx-configmap.yml"
+          kubectl apply -f "${K8S_PATH}/nginx-deployment.yml"
+          kubectl apply -f "${K8S_PATH}/ml-service.yml"
 
-      # ----------------------------------------------------
+      # ---------------------------
       # BLUE deploy
-      # ----------------------------------------------------
+      # ---------------------------
       - name: Deploy BLUE version
         env:
           ML_SERVICE_NAME: ml-service-blue
@@ -102,21 +129,24 @@ jobs:
           ML_IMAGE_VERSION: ${{ env.BLUE_VERSION }}
           CI_REGISTRY_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}
         run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y gettext-base
-          envsubst < ${{ env.K8S_PATH }}/ml-deployment.yml | kubectl apply -f -
+          envsubst < "${K8S_PATH}/ml-deployment.yml" | kubectl apply -f -
 
       - name: Route traffic to BLUE
         run: |
-          kubectl patch service ml-service-internal \
-            -p '{"spec":{"selector":{"tier":"blue"}}}'
+          set -euo pipefail
+          kubectl patch service ml-service-internal -p '{"spec":{"selector":{"tier":"blue"}}}'
 
       - name: Wait for BLUE
-        run: kubectl rollout status deployment/ml-service-blue --timeout=5m
+        run: |
+          set -euo pipefail
+          kubectl rollout status deployment/ml-service-blue --timeout=5m
 
-      # ----------------------------------------------------
+      # ---------------------------
       # GREEN deploy
-      # ----------------------------------------------------
+      # ---------------------------
       - name: Deploy GREEN version
         env:
           ML_SERVICE_NAME: ml-service-green
@@ -124,29 +154,58 @@ jobs:
           ML_IMAGE_VERSION: ${{ env.GREEN_VERSION }}
           CI_REGISTRY_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}
         run: |
-          envsubst < ${{ env.K8S_PATH }}/ml-deployment.yml | kubectl apply -f -
+          set -euo pipefail
+          envsubst < "${K8S_PATH}/ml-deployment.yml" | kubectl apply -f -
 
       - name: Wait for GREEN
-        run: kubectl rollout status deployment/ml-service-green --timeout=5m
+        run: |
+          set -euo pipefail
+          kubectl rollout status deployment/ml-service-green --timeout=5m
 
-      # ----------------------------------------------------
+      # ---------------------------
       # Switch traffic
-      # ----------------------------------------------------
+      # ---------------------------
       - name: Switch Nginx backend to GREEN
         run: |
+          set -euo pipefail
           kubectl patch configmap nginx-config --type='json' \
             -p='[{"op":"replace","path":"/data/ML_SERVICE_BACKEND","value":"ml-service-green"}]'
 
       - name: Restart Nginx
-        run: kubectl rollout restart deployment/nginx-lb
+        run: |
+          set -euo pipefail
+          kubectl rollout restart deployment/nginx-lb
 
       - name: Route traffic to GREEN
         run: |
-          kubectl patch service ml-service-internal \
-            -p '{"spec":{"selector":{"tier":"green"}}}'
+          set -euo pipefail
+          kubectl patch service ml-service-internal -p '{"spec":{"selector":{"tier":"green"}}}'
 
-      # ----------------------------------------------------
+      # ---------------------------
       # Cleanup
-      # ----------------------------------------------------
+      # ---------------------------
       - name: Cleanup BLUE deployment
-        run: kubectl delete deployment ml-service-blue --ignore-not-found=true
+        run: |
+          set -euo pipefail
+          kubectl delete deployment ml-service-blue --ignore-not-found=true
+
+      # ---------------------------
+      # Diagnostics on failure
+      # ---------------------------
+      - name: Diagnostics (only if something failed)
+        if: failure()
+        run: |
+          echo "=== NAMESPACE: ${K8S_NAMESPACE} ==="
+          kubectl get all -n "${K8S_NAMESPACE}" || true
+
+          echo "=== PODS ==="
+          kubectl get pods -n "${K8S_NAMESPACE}" -o wide || true
+
+          echo "=== DESCRIBE PODS ==="
+          for p in $(kubectl get pods -n "${K8S_NAMESPACE}" -o name 2>/dev/null); do
+            echo "--- $p ---"
+            kubectl describe -n "${K8S_NAMESPACE}" "$p" || true
+          done
+
+          echo "=== EVENTS (last 100) ==="
+          kubectl get events -n "${K8S_NAMESPACE}" --sort-by=.lastTimestamp | tail -n 100 || true
