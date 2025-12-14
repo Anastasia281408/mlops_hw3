@@ -53,22 +53,26 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+        
       - name: Setup Kubeconfig
         uses: azure/k8s-set-context@v4
         with:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
-      - name: Deploy Base K8s Infrastructure
+        - name: Deploy Base K8s Infrastructure
+        
         run: |
           echo "Deploying Base K8s Infrastructure..."
           kubectl apply -f $K8S_PATH/nginx-configmap.yml
           kubectl apply -f $K8S_PATH/nginx-deployment.yml
           kubectl apply -f $K8S_PATH/ml-service.yml
-
+          
+      
       - name: Deploy Blue ML Service (${{ env.BLUE_VERSION }})
+       
         run: |
+          # 10 пробелов перед командой
           # Установка gettext-base для envsubst
           sudo apt-get update
           sudo apt-get install gettext-base -y
